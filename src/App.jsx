@@ -56,10 +56,13 @@ const styles = `
   @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 
   
-  .split-layout{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:24px;align-items:start;margin-top:28px}
-  @media(max-width:1100px){.split-layout{grid-template-columns:1fr!important}.resume-col{position:static!important}}
-  .analysis-col{min-width:0}
-  .resume-col{position:sticky;top:20px;min-width:0}
+  .split-layout{display:flex;flex-direction:row;gap:0;align-items:start;margin-top:28px;width:100%}
+  @media(max-width:1100px){.split-layout{flex-direction:column!important}.resume-col{position:static!important;width:100%!important}.drag-handle{display:none!important}}
+  .analysis-col{min-width:320px;flex:1 1 0;overflow:hidden}
+  .resume-col{position:sticky;top:20px;min-width:280px;flex:0 0 auto}
+  .drag-handle{width:8px;flex:0 0 8px;cursor:col-resize;display:flex;align-items:stretch;justify-content:center;padding:0 2px;margin:0 4px;z-index:10;user-select:none}
+  .drag-handle-bar{width:4px;border-radius:99px;background:var(--border);transition:background .15s}
+  .drag-handle:hover .drag-handle-bar,.drag-handle.dragging .drag-handle-bar{background:var(--accent)}
 
   
   .resume-preview-wrap{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--surface)}
@@ -668,8 +671,52 @@ function SuggestedBulletsSection({ injectionReport }) {
   );
 }
 
+
+function DragHandle({ onDrag }) {
+  const [active, setActive] = useState(false);
+
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    setActive(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => { onDrag(ev.clientX); };
+    const onUp = () => {
+      setActive(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  return (
+    <div
+      className={"drag-handle" + (active ? " dragging" : "")}
+      onMouseDown={onMouseDown}
+      title="Drag to resize columns"
+      style={{display:'flex',alignItems:'center',justifyContent:'center',width:16,flexShrink:0,cursor:'col-resize',padding:'0 4px',alignSelf:'stretch'}}
+    >
+      <div style={{width:4,height:'100%',minHeight:200,borderRadius:99,background:active?'var(--accent)':'var(--border)',transition:'background .15s'}}/>
+    </div>
+  );
+}
+
 export default function ResumeOptimizer(){
-  const[file,setFile]=useState(null);const[jobDesc,setJobDesc]=useState("");const[webhookUrl,setWebhookUrl]=useState(N8N_WEBHOOK_URL);const[loading,setLoading]=useState(false);const[result,setResult]=useState(null);const[error,setError]=useState(null);const[dragging,setDragging]=useState(false);const[pipelineStep,setPipelineStep]=useState(0);const fileInputRef=useRef(null);const isReady=file&&jobDesc.trim().length>20;
+  const[file,setFile]=useState(null);const[jobDesc,setJobDesc]=useState("");const[resumeWidth,setResumeWidth]=useState(440);const splitRef=useRef(null);const[webhookUrl,setWebhookUrl]=useState(N8N_WEBHOOK_URL);const[loading,setLoading]=useState(false);const[result,setResult]=useState(null);const[error,setError]=useState(null);const[dragging,setDragging]=useState(false);const[pipelineStep,setPipelineStep]=useState(0);const fileInputRef=useRef(null);const isReady=file&&jobDesc.trim().length>20;
+
+  const handleResize = useCallback((clientX) => {
+    if (!splitRef.current) return;
+    const rect = splitRef.current.getBoundingClientRect();
+    const totalW = rect.width;
+    const handleW = 16;
+    const analysisW = clientX - rect.left;
+    const newResumeW = totalW - analysisW - handleW;
+    const clamped = Math.max(280, Math.min(totalW - 320 - handleW, newResumeW));
+    setResumeWidth(Math.round(clamped));
+  }, []);
 
   const handleDrop=useCallback((e)=>{e.preventDefault();setDragging(false);const f=e.dataTransfer.files[0];if(f&&(f.type==="application/pdf"||f.name.match(/\.docx?$/i))){setFile(f);setError(null)}else setError("Please upload a PDF or Word document.")},[]);
 
@@ -757,7 +804,7 @@ export default function ResumeOptimizer(){
           <div className="score-ring-wrap"><ScoreRing score={r.score} color={scoreColor(r.score)}/><div><div style={{fontFamily:"'Space Mono',monospace",fontSize:12,color:"var(--text-dim)",letterSpacing:1,textTransform:"uppercase"}}>ATS Score</div><div style={{fontSize:13,color:"var(--text-dim)",marginTop:2}}>{r.score>=80?"Strong match":r.score>=50?"Needs improvement":"Significant gaps"}</div></div></div>
         </div>
 
-        <div className="split-layout">
+        <div className="split-layout" ref={splitRef}>
           
           <div className="analysis-col">
 
@@ -817,44 +864,14 @@ export default function ResumeOptimizer(){
 
             {(plan.final_action_items||[]).length>0&&(<div className="card" style={{marginTop:8}}><h3 className="accent"><SparkleIcon size={14}/> Action Items</h3>{plan.final_action_items.map((item,i)=>(<div className="action-item" key={i}><div className={`action-num ${item.impact||'medium'}`}>{item.priority||i+1}</div><div><div className="action-text">{item.action}</div><div className="action-impact" style={{color:item.impact==='high'?'var(--red)':item.impact==='medium'?'var(--yellow)':'var(--green)'}}>{item.impact} impact</div></div></div>))}</div>)}
 
-            {r.cover_letter&&(<div className="cover-letter-section">
-              <h3>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                Cover Letter
-              </h3>
-              <div className="cl-meta">
-                {r.cover_letter.job_title&&<span>Role: {r.cover_letter.job_title}</span>}
-                {r.cover_letter.word_count&&<span>Words: {r.cover_letter.word_count}</span>}
-                {r.cover_letter.keywords_included&&<span>Keywords: {r.cover_letter.keywords_included.length} included</span>}
-              </div>
-              <div className="cl-body">
-                <div style={{marginBottom:14,fontWeight:500}}>{r.cover_letter.greeting}</div>
-                {Array.isArray(r.cover_letter.cover_letter_paragraphs)&&r.cover_letter.cover_letter_paragraphs.length>0
-                  ?r.cover_letter.cover_letter_paragraphs.map((para,i)=><p key={i} style={{margin:'0 0 14px 0',lineHeight:1.75,textAlign:'justify'}}>{para}</p>)
-                  :(r.cover_letter.cover_letter||'').split('\n\n').filter(Boolean).map((para,i)=><p key={i} style={{margin:'0 0 14px 0',lineHeight:1.75,textAlign:'justify'}}>{para}</p>)
-                }
-                <div style={{marginTop:16,marginBottom:4}}>Warm regards,</div>
-                <div style={{fontWeight:700}}>{r.cover_letter.candidate_name}</div>
-              </div>
-              {(r.cover_letter.keywords_included||[]).length>0&&(
-                <div>
-                  <div style={{fontSize:10,fontFamily:"'Space Mono',monospace",color:"var(--yellow)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Keywords included</div>
-                  <div className="cl-keywords">{r.cover_letter.keywords_included.map((k,i)=><span key={i} className="tag yellow">{k}</span>)}</div>
-                </div>
-              )}
-              {r.cover_letter_html&&(
-                <div style={{marginTop:16,display:'flex',gap:10,flexWrap:'wrap'}}>
-                  <button className="dl-btn cover" style={{fontSize:13,padding:'10px 20px'}} onClick={()=>downloadHtml(r.cover_letter_html,r.cover_letter_filename||'Cover_Letter.html')}><DownloadIcon/> Download Cover Letter</button>
-                  <button className="dl-btn tertiary" style={{fontSize:13,padding:'10px 20px'}} onClick={()=>saveAsPdf(r.cover_letter_html)}><PdfIcon/> Save as PDF</button>
-                </div>
-              )}
-            </div>)}
+            
 
           </div>
 
-          
+          <DragHandle onDrag={handleResize}/>
+
           {hasResume&&(
-            <div className="resume-col">
+            <div className="resume-col" style={{width:resumeWidth,flexShrink:0,flexGrow:0,flexBasis:resumeWidth}}>
               <ResumePreview
                 html={r.optimized_resume_html}
                 matchedKeywords={r.matched_keywords||[]}
@@ -867,9 +884,44 @@ export default function ResumeOptimizer(){
           )}
 
         </div>
+
+        {r.cover_letter&&(
+          <div className="cover-letter-section" style={{marginTop:24}}>
+            <h3>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Cover Letter
+            </h3>
+            <div className="cl-meta">
+              {r.cover_letter.job_title&&<span>Role: {r.cover_letter.job_title}</span>}
+              {r.cover_letter.word_count&&<span>Words: {r.cover_letter.word_count}</span>}
+              {r.cover_letter.keywords_included&&<span>Keywords: {r.cover_letter.keywords_included.length} included</span>}
+            </div>
+            <div className="cl-body">
+              <div style={{marginBottom:14,fontWeight:500}}>{r.cover_letter.greeting}</div>
+              {Array.isArray(r.cover_letter.cover_letter_paragraphs)&&r.cover_letter.cover_letter_paragraphs.length>0
+                ?r.cover_letter.cover_letter_paragraphs.map((para,i)=><p key={i} style={{margin:'0 0 14px 0',lineHeight:1.75,textAlign:'justify'}}>{para}</p>)
+                :(r.cover_letter.cover_letter||'').split('\n\n').filter(Boolean).map((para,i)=><p key={i} style={{margin:'0 0 14px 0',lineHeight:1.75,textAlign:'justify'}}>{para}</p>)
+              }
+              <div style={{marginTop:16,marginBottom:4}}>Warm regards,</div>
+              <div style={{fontWeight:700}}>{r.cover_letter.candidate_name}</div>
+            </div>
+            {(r.cover_letter.keywords_included||[]).length>0&&(
+              <div>
+                <div style={{fontSize:10,fontFamily:"'Space Mono',monospace",color:"var(--yellow)",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Keywords included</div>
+                <div className="cl-keywords">{r.cover_letter.keywords_included.map((k,i)=><span key={i} className="tag yellow">{k}</span>)}</div>
+              </div>
+            )}
+            {r.cover_letter_html&&(
+              <div style={{marginTop:16,display:'flex',gap:10,flexWrap:'wrap'}}>
+                <button className="dl-btn cover" style={{fontSize:13,padding:'10px 20px'}} onClick={()=>downloadHtml(r.cover_letter_html,r.cover_letter_filename||'Cover_Letter.html')}><DownloadIcon/> Download Cover Letter</button>
+                <button className="dl-btn tertiary" style={{fontSize:13,padding:'10px 20px'}} onClick={()=>saveAsPdf(r.cover_letter_html)}><PdfIcon/> Save as PDF</button>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>)}
     </div>
   );
 }
 
-export default ResumeOptimizer;
